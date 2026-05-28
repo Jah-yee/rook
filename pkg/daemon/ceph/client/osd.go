@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/rook/rook/pkg/clusterd"
@@ -274,6 +275,14 @@ func GetOSDDump(context *clusterd.Context, clusterInfo *ClusterInfo) (*OSDDump, 
 	buf, err := cmd.Run()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get osd dump")
+	}
+	// Ceph "ceph osd dump" JSON output may contain unquoted "inf" tokens
+	// (e.g. for read_balance.score_acting) which break Go's json.Unmarshal.
+	// Replace bare "inf" with "Infinity" before unmarshaling.
+	bufStr := string(buf)
+	if strings.Contains(bufStr, "inf") {
+		bufStr = strings.ReplaceAll(bufStr, "inf", "Infinity")
+		buf = []byte(bufStr)
 	}
 
 	var osdDump OSDDump
