@@ -214,3 +214,68 @@ func TestOSDOkToStop(t *testing.T) {
 		assert.Equal(t, "--max=0", seenArgs[3])
 	})
 }
+
+func TestGetOSDDumpInfTokens(t *testing.T) {
+	executor := &exectest.MockExecutor{}
+	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
+		if args[0] == "osd" && args[1] == "dump" {
+			return osdDumpWithInf, nil
+		}
+		return "", errors.Errorf("unexpected ceph command %q", args)
+	}
+
+	ctx := &clusterd.Context{Executor: executor}
+	clusterInfo := AdminTestClusterInfo("mycluster")
+
+	// Test: bare inf in JSON triggers replacement and unmarshal succeeds
+	dump, err := GetOSDDump(ctx, clusterInfo)
+	assert.NoError(t, err)
+	assert.NotNil(t, dump)
+	assert.Equal(t, 2, len(dump.OSDs))
+
+	// Test: clean JSON (no inf) also works
+	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
+		if args[0] == "osd" && args[1] == "dump" {
+			return osdDumpClean, nil
+		}
+		return "", errors.Errorf("unexpected ceph command %q", args)
+	}
+	dump, err = GetOSDDump(ctx, clusterInfo)
+	assert.NoError(t, err)
+	assert.NotNil(t, dump)
+
+	// Test: malformed JSON with no inf substring returns error
+	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
+		if args[0] == "osd" && args[1] == "dump" {
+			return "not json at all", nil
+		}
+		return "", errors.Errorf("unexpected ceph command %q", args)
+	}
+	dump, err = GetOSDDump(ctx, clusterInfo)
+	assert.Error(t, err)
+	assert.Nil(t, dump)
+}
+
+var osdDumpWithInf = `{
+  "osds": [
+    {"osd": "0", "up": "1", "in": "1"},
+    {"osd": "1", "up": "0", "in": "0", "read_balance": {"score_acting": inf}}
+  ],
+  "flags": "",
+  "crush_node_flags": {},
+  "full_ratio": 0.85,
+  "backfillfull_ratio": 0.9,
+  "nearfull_ratio": 0.8
+}`
+
+var osdDumpClean = `{
+  "osds": [
+    {"osd": "0", "up": "1", "in": "1"},
+    {"osd": "1", "up": "1", "in": "1"}
+  ],
+  "flags": "",
+  "crush_node_flags": {},
+  "full_ratio": 0.85,
+  "backfillfull_ratio": 0.9,
+  "nearfull_ratio": 0.8
+}`

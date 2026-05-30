@@ -276,18 +276,17 @@ func GetOSDDump(context *clusterd.Context, clusterInfo *ClusterInfo) (*OSDDump, 
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get osd dump")
 	}
-	// Ceph "ceph osd dump" JSON output may contain unquoted "inf" tokens
-	// (e.g. for read_balance.score_acting) which break Go's json.Unmarshal.
-	// Replace bare "inf" with "Infinity" before unmarshaling.
-	bufStr := string(buf)
-	if strings.Contains(bufStr, "inf") {
-		bufStr = strings.ReplaceAll(bufStr, "inf", "Infinity")
-		buf = []byte(bufStr)
-	}
 
 	var osdDump OSDDump
+	// Ceph "ceph osd dump" JSON output may contain unquoted "inf" tokens
+	// (e.g. for read_balance.score_acting) which break Go's json.Unmarshal.
+	// Try unmarshal first; only replace+retry if it fails. This minimizes
+	// risk of false-positive matches in valid string content.
 	if err := json.Unmarshal(buf, &osdDump); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal osd dump response")
+		bufStr := strings.ReplaceAll(string(buf), "inf", `"Infinity"`)
+		if jsonErr := json.Unmarshal([]byte(bufStr), &osdDump); jsonErr != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal osd dump response")
+		}
 	}
 
 	return &osdDump, nil
